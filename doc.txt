@@ -1,0 +1,132 @@
+  /* try to load the BIOS */
+
+  u_word_t iomlen = bus->iom->edr - bus->iom->adr + 1 ;
+  u_word_t memlen = bus->mem.edr - bus->mem.adr + 1 ;
+  u_word_t BIOS_len ;
+  u_word_t BIOS_idx ;
+  int found_BIOS = 0 ;
+
+  for (u_word_t ofs = 0 ; ofs < iomlen ; ++ofs){
+    u_word_t dat = bus->iom->rd(bus->iom, ofs) ;
+
+    switch (found_BIOS) {
+    case 0 :
+      if (0x70004505 == dat) {
+	++found_BIOS ;
+      }
+      break ;
+ 
+    case 1 :
+      if (memlen < dat) {
+	ofs = len ; /* break the loop */
+      } else {
+        BIOS_len = dat ;
+        BIOS_idx = 0 ;
+        ++found_BIOS ;
+      }
+      break ;
+
+    default :
+      if (BIOS_len <= BIOS_idx) {
+	found_BIOS = -1 ;
+	ofs = len ; /* break the loop */
+      } else {
+        memwr(&bus->mem, BIOS_idx++, dat) ;
+        ++found_BIOS ;
+      }
+      break ;
+    }
+  }
+
+  return -1 != found_BIOS ;
+
+
+.-----------------------------------.
+| 0x00000000      | start     |     |
+| 0x00000010      | SR.PL     |     | Status Register - Privilege Level
+| 0x00000020      | SR.RN/SI  |     | Status Register - RuNning (Write) / Serving Interrupt (Read)
+| 0x00000030      | SR.EI     |     | Status Register - Enable Interrupt
+| 0x00000040      | SR.WI     |     | Status Register - Wait for Interrupt
+| 0x00000050      | SR.SM     |     | Status Register - Segmented memory Model
+| 0x00000060      | SR        |     | Status Register
+| 0x00000001      | IRR       |     | Interrupt Requests Register (Read-Only)
+| 0x00000002...F2 | IRR.N     |     | Interrupt N Request Register (Read-Only)
+| 0x00000003      | IMR       |     | Interrupt Masks Register
+| 0x00000004...F4 | IMR.N     |     | Interrupt N Mask Register
+| 0x00000005      | IVT       |     | Interrupt Vector Table
+| 0x00000006      | ISP       |     | Interrupt Stack Pointer
+| 0x00000007      | SDT       |     | Segment Descriptors Table
+|        ...      |           | CPU |
+| 0x000000FF      | end       |     |
+|-----------------|-----------|-----|
+| 0x00000100      | min start |     |
+|        ...      |           | I/O |
+| 0x7FFFFFFF      | max end   |     |
+|-----------------|-----------|-----|
+| 0x80000000      | start     |     |
+|                 |           | RAM |
+| 0xFFFFFFFF      | max end   |     |
+'-----------------------------------'
+
+.---------------------------------------------------.
+| Linear Address (SR.SM = 0, default)               |
+| oooooooo oooooooo oooooooo oooooooo               |
+|---------------------------------------------------|
+| Segmented Address (SR.SM = 1)                     |
+| pppppppp ppgggggg ggggoooo oooooooo               |
+|---------------------------------------------------|
+| where                                             |
+|  * p stands for Process segment descriptors table |
+|  * g stands for Group segment descriptor          |
+|  * o stands for Offset within the segment (4 KiB) |
+'---------------------------------------------------'
+
+.-------------------------------------------------------------.
+| Instruction fields (bits)             |                     |
+|---------------------------------------| Description         |
+|    O    A    B    F    C          S/U |                     |
+|---------------------------------------|---------------------|
+| 0000 AAAA BBBB 0000 CCCC SSSSSSSSSSSS | add  rA, rB, rC + S |
+| 0000 AAAA BBBB 0001 CCCC SSSSSSSSSSSS | sub  rA, rB, rC + S |
+| 0000 AAAA BBBB 0010 CCCC SSSSSSSSSSSS | umul rA, rB, rC + S |
+| 0000 AAAA BBBB 0011 CCCC SSSSSSSSSSSS | udiv rA, rB, rC + S |
+| 0000 AAAA BBBB 0100 CCCC SSSSSSSSSSSS | umod rA, rB, rC + S |
+| 0000 AAAA BBBB 0101 CCCC SSSSSSSSSSSS | smul rA, rB, rC + S |
+| 0000 AAAA BBBB 0110 CCCC SSSSSSSSSSSS | sdiv rA, rB, rC + S |
+| 0000 AAAA BBBB 0111 CCCC SSSSSSSSSSSS | smod rA, rB, rC + S |
+| 0000 AAAA BBBB 1000 CCCC SSSSSSSSSSSS | and  rA, rB, rC + S |
+| 0000 AAAA BBBB 1001 CCCC SSSSSSSSSSSS | or   rA, rB, rC + S |
+| 0000 AAAA BBBB 1010 CCCC SSSSSSSSSSSS | eor  rA, rB, rC + S |
+| 0000 AAAA BBBB 1011 CCCC SSSSSSSSSSSS | nand rA, rB, rC + S |
+| 0000 AAAA BBBB 1100 CCCC SSSSSSSSSSSS | nor  rA, rB, rC + S |
+| 0000 AAAA BBBB 1101 CCCC SSSSSSSSSSSS | shl  rA, rB, rC + S |
+| 0000 AAAA BBBB 1110 CCCC SSSSSSSSSSSS | ushr rA, rB, rC + S |
+| 0000 AAAA BBBB 1111 CCCC SSSSSSSSSSSS | sshr rA, rB, rC + S |
+| 0001 AAAA BBBB 0000 CCCC SSSSSSSSSSSS | bne  rA, rB, rC + S |
+| 0001 AAAA BBBB 0001 CCCC SSSSSSSSSSSS | beq  rA, rB, rC + S |
+| 0001 AAAA BBBB 0010 CCCC SSSSSSSSSSSS | ublt rA, rB, rC + S |
+| 0001 AAAA BBBB 0011 CCCC SSSSSSSSSSSS | uble rA, rB, rC + S |
+| 0001 AAAA BBBB 0100 CCCC SSSSSSSSSSSS | sblt rA, rB, rC + S |
+| 0001 AAAA BBBB 0101 CCCC SSSSSSSSSSSS | sble rA, rB, rC + S |
+| 0001 AAAA BBBB 0110 CCCC SSSSSSSSSSSS | jal  rA, rB, rC + S |
+| 0001 AAAA BBBB 0111 CCCC SSSSSSSSSSSS | rjal rA, rB, rC + S |
+| 0001 AAAA BBBB 1000 CCCC UUUUUUUUUUUU | movl rA, rB, UC     |
+| 0001 AAAA BBBB 1001 CCCC UUUUUUUUUUUU | movh rA, rB, UC     |
+| 0001 AAAA BBBB 1010 CCCC SSSSSSSSSSSS | ldr  rA, rB, rC + S |
+| 0001 AAAA BBBB 1011 CCCC SSSSSSSSSSSS | str  rA, rB, rC + S |
+| 0001 AAAA BBBB 1100 CCCC SSSSSSSSSSSS | ldi  rA, SCB        |
+| 0001 AAAA ???? 1101 ???? ???????????? | int  A              |
+| 0001 ???? ???? 1110 ???? ???????????? | rti                 |
+| 0001 ???? ???? 1111 ???? ???????????? | rst                 |
+'-------------------------------------------------------------'
+
+[ timer            ]
+[ 00 | adr    | rw ]
+[ 01 | edr    | r- ]
+[ 02 | csr    | rw ]
+[ 12 | csr.ck | rw ]
+[ 22 | csr.wa | rw ]
+[ 32 | csr.rp | rw ]
+[ 03 | scr    | rw ]
+[ 04 | ecr    | rw ]
+[ 05 | eps    | r- ]
